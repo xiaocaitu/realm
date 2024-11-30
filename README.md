@@ -30,8 +30,8 @@ curl -L https://host.wxgwxha.eu.org/https://raw.githubusercontent.com/wcwq98/rea
 ```
 curl -L https://raw.githubusercontent.com/wcwq98/realm/refs/heads/main/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
 ```
-##默认配置文件（脚本在首次部署时会自动添加）
-
+## 默认配置文件（脚本在首次部署时会自动添加）
+```
 [network]
 no_tcp = false #是否关闭tcp转发
 use_udp = true #是否开启udp转发
@@ -44,7 +44,7 @@ use_udp = true #是否开启udp转发
 [[endpoints]]
 listen = "0.0.0.0:1234"
 remote = "0.0.0.0:5678"
-
+```
 
 
 ## 如需其他更多配置请参考官方文档： https://github.com/zhboner/realm
