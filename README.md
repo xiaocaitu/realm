@@ -9,17 +9,17 @@
 =================
 1. 部署环境
 2. 添加转发
-3. 删除转发
-4. 启动服务
-5. 停止服务
-6. 一键卸载
-7. 检测更新
-8. 重启服务
+3. 添加端口段转发
+4. 删除转发
+5. 启动服务
+6. 停止服务
+7. 重启服务
+8. 检测更新
+9. 一键卸载
 0. 退出脚本
 =================
-realm 状态：已安装
-realm 转发状态：启用
-请选择一个选项: 
+realm 状态：未安装
+realm 转发状态：未启用
 ```
 ## 一键脚本：
 国内或v6 only可用（推荐）
@@ -30,24 +30,21 @@ curl -L https://host.wxgwxha.eu.org/https://raw.githubusercontent.com/wcwq98/rea
 ```
 curl -L https://raw.githubusercontent.com/wcwq98/realm/refs/heads/main/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
 ```
+##默认配置文件（脚本在首次部署时会自动添加）
 
+[network]
+no_tcp = false #是否关闭tcp转发
+use_udp = true #是否开启udp转发
 
+#参考模板
+# [[endpoints]]
+# listen = "0.0.0.0:本地端口"
+# remote = "落地鸡ip:目标端口"
 
-
-添加转发的配置文件：
-```
-nano /root/realm/config.toml
-```
-添加你的转发内容：
-```
 [[endpoints]]
-listen = "0.0.0.0:本地监听端口"
-#如果是v6，把 0.0.0.0 改为 [::]
-remote = "需要转发的ip或域名:目标端口"
-[[endpoints]]
-listen = "0.0.0.0:示例2端口"
-remote = "示例2ip或域名:示例2目标端口"
-```
-最后Ctrl O保存，Ctrl X退出
+listen = "0.0.0.0:1234"
+remote = "0.0.0.0:5678"
 
-## 如需其他更多配置请参考官方示例配置： https://github.com/zhboner/realm/tree/master/examples
+
+
+## 如需其他更多配置请参考官方文档： https://github.com/zhboner/realm
