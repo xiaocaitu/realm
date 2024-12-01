@@ -32,12 +32,13 @@ show_menu() {
     echo "================="
     echo "1. 部署环境"
     echo "2. 添加转发"
-    echo "3. 删除转发"
-    echo "4. 启动服务"
-    echo "5. 停止服务"
-    echo "6. 一键卸载"
-    echo "7. 检测更新"
-    echo "8. 重启服务"
+    echo "3. 添加端口段转发"
+    echo "4. 删除转发"
+    echo "5. 启动服务"
+    echo "6. 停止服务"
+    echo "7. 重启服务"
+    echo "8. 检测更新"
+    echo "9. 一键卸载"
     echo "0. 退出脚本"
     echo "================="
     echo -e "realm 状态：${realm_status_color}${realm_status}${plain}"
@@ -59,23 +60,55 @@ deploy_realm() {
         echo "当前最新版本为: ${_version}"
     fi
 
-    arch=$(arch)
-    case $arch in
-        x86_64)
+    arch=$(uname -m)
+    os=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+    case "$arch-$os" in
+        x86_64-linux)
             download_url="https://github.com/zhboner/realm/releases/download/${_version}/realm-x86_64-unknown-linux-gnu.tar.gz"
             ;;
-        aarch64)
+        x86_64-darwin)
+            download_url="https://github.com/zhboner/realm/releases/download/${_version}/realm-x86_64-apple-darwin.tar.gz"
+            ;;
+        aarch64-linux)
             download_url="https://github.com/zhboner/realm/releases/download/${_version}/realm-aarch64-unknown-linux-gnu.tar.gz"
             ;;
+        aarch64-darwin)
+            download_url="https://github.com/zhboner/realm/releases/download/${_version}/realm-aarch64-apple-darwin.tar.gz"
+            ;;
+        arm-linux)
+            download_url="https://github.com/zhboner/realm/releases/download/${_version}/realm-arm-unknown-linux-gnueabi.tar.gz"
+            ;;
+        armv7-linux)
+            download_url="https://github.com/zhboner/realm/releases/download/${_version}/realm-armv7-unknown-linux-gnueabi.tar.gz"
+            ;;
         *)
-            echo "不支持的架构: $arch"
+            echo "不支持的架构: $arch-$os"
             return
             ;;
     esac
 
-    wget -O realm.tar.gz "$download_url"
-    tar -xvf realm.tar.gz
+    wget -O "realm-${_version}.tar.gz" "$download_url"
+    tar -xvf "realm-${_version}.tar.gz"
     chmod +x realm
+
+    # 创建 config.toml 模板
+    cat <<EOF > /root/realm/config.toml
+
+[network]
+no_tcp = false #是否关闭tcp转发
+use_udp = true #是否开启udp转发
+
+#参考模板
+# [[endpoints]]
+# listen = "0.0.0.0:本地端口"
+# remote = "落地鸡ip:目标端口"
+
+[[endpoints]]
+listen = "0.0.0.0:1234"
+remote = "0.0.0.0:5678"
+
+EOF
 
     echo "[Unit]
 Description=realm
@@ -105,8 +138,20 @@ uninstall_realm() {
     systemctl disable realm
     rm -f /etc/systemd/system/realm.service
     systemctl daemon-reload
-    rm -rf /root/realm
+
+    rm -f /root/realm/realm
     echo "realm已被卸载。"
+
+    read -e -p "是否删除配置文件 (Y/N, 默认N): " delete_config
+    delete_config=${delete_config:-N}
+
+    if [[ $delete_config == "Y" || $delete_config == "y" ]]; then
+        rm -rf /root/realm
+        echo "配置文件已删除。"
+    else
+        echo "配置文件保留。"
+    fi
+
     update_realm_status
 }
 
@@ -156,18 +201,34 @@ delete_forward() {
 # 添加转发规则
 add_forward() {
     while true; do
-        read -p "请输入IP: " ip
-        read -p "请输入监听端口（port1）: " port1
-        read -p "请输入目标端口（port2）: " port2
+        read -e -p "请输入落地鸡的IP: " ip
+        read -e -p "请输入本地中转鸡的端口（port1）: " port1
+        read -e -p "请输入落地鸡端口（port2）: " port2
         echo "[[endpoints]]
 listen = \"0.0.0.0:$port1\"
 remote = \"$ip:$port2\"" >> /root/realm/config.toml
 
-        read -p "是否继续添加(Y/N)? " answer
+        read -e -p "是否继续添加转发规则(Y/N)? " answer
         if [[ $answer != "Y" && $answer != "y" ]]; then
             break
         fi
     done
+}
+
+# 添加端口段转发
+add_port_range_forward() {
+    read -e -p "请输入落地鸡的IP: " ip
+    read -e -p "请输入本地中转鸡的起始端口: " start_port
+    read -e -p "请输入本地中转鸡的截止端口: " end_port
+    read -e -p "请输入落地鸡端口: " remote_port
+
+    for ((port=$start_port; port<=$end_port; port++)); do
+        echo "[[endpoints]]
+listen = \"0.0.0.0:$port\"
+remote = \"$ip:$remote_port\"" >> /root/realm/config.toml
+    done
+
+    echo "端口段转发规则已添加。"
 }
 
 # 启动服务
@@ -178,6 +239,11 @@ start_service() {
     systemctl enable realm.service
     echo "realm服务已启动并设置为开机自启。"
     update_realm_status
+
+    # 检查服务状态
+    if ! systemctl is-active --quiet realm; then
+        echo "请检查是否存在config.toml或config.toml配置是否正确"
+    fi
 }
 
 # 停止服务
@@ -192,22 +258,34 @@ restart_service() {
     systemctl restart realm
     echo "realm服务已重启。"
     update_realm_status
+
+    # 检查服务状态
+    if ! systemctl is-active --quiet realm; then
+        echo "请检查是否存在config.toml或config.toml配置是否正确"
+    fi
 }
 
 # 更新realm
 update_realm() {
     echo "> 检测并更新 realm"
 
+    current_version=$(/root/realm/realm --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
     tag_version=$(curl -Ls "https://api.github.com/repos/zhboner/realm/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    
+
     if [[ -z "$tag_version" ]]; then
         echo -e "${red}获取 realm 版本失败，可能是由于 GitHub API 限制，请稍后再试${plain}"
         exit 1
     fi
 
+    if [[ "$current_version" == "$tag_version" ]]; then
+        echo "当前已经是最新版本: ${current_version}"
+        return
+    fi
+
     echo -e "获取到 realm 最新版本: ${tag_version}，开始安装..."
 
-    wget -N --no-check-certificate -O /root/realm/realm.tar.gz "https://github.com/zhboner/realm/releases/download/${tag_version}/realm-$(arch)-unknown-linux-gnu.tar.gz"
+    arch=$(uname -m)
+    wget -N --no-check-certificate -O /root/realm/realm.tar.gz "https://github.com/zhboner/realm/releases/download/${tag_version}/realm-${arch}-unknown-linux-gnu.tar.gz"
     
     if [[ $? -ne 0 ]]; then
         echo -e "${red}下载 realm 失败，请确保您的服务器可以访问 GitHub${plain}"
@@ -230,37 +308,17 @@ while true; do
     show_menu
     read -p "请选择一个选项: " choice
     case $choice in
-        1)
-            deploy_realm
-            ;;
-        2)
-            add_forward
-            ;;
-        3)
-            delete_forward
-            ;;
-        4)
-            start_service
-            ;;
-        5)
-            stop_service
-            ;;
-        6)
-            uninstall_realm
-            ;;
-        7)
-            update_realm
-            ;;
-        8)
-            restart_service
-            ;;
-        0)
-            echo "退出脚本。"
-            exit 0
-            ;;
-        *)
-            echo "无效选项: $choice"
-            ;;
+        1) deploy_realm ;;
+        2) add_forward ;;
+        3) add_port_range_forward ;;
+        4) delete_forward ;;
+        5) start_service ;;
+        6) stop_service ;;
+        7) restart_service ;;
+        8) update_realm ;;
+        9) uninstall_realm ;;
+        0) echo "退出脚本。"; exit 0 ;;
+        *) echo "无效选项: $choice" ;;
     esac
     read -p "按任意键继续..." key
 done
