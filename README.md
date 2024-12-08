@@ -24,11 +24,11 @@ realm 转发状态：未启用
 ## 一键脚本：
 国内或v6 only可用（推荐）
 ```
-curl -L https://host.wxgwxha.eu.org/https://github.com/wcwq98/realm/releases/download/V1.1/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
+curl -L https://host.wxgwxha.eu.org/https://github.com/wcwq98/realm/releases/download/V1.2/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
 ```
 或
 ```
-curl -L https://github.com/wcwq98/realm/releases/download/V1.1/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
+curl -L https://github.com/wcwq98/realm/releases/download/V1.2/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
 ```
 或
 ```
