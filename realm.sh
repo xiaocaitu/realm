@@ -6,7 +6,7 @@ green="\033[0;32m"
 plain="\033[0m"
 
 # 脚本版本
-sh_ver="1.0.0"
+sh_ver="1.2"
 
 # 配置文件路径
 CONFIG_PATH="/root/.realm/config.toml"
