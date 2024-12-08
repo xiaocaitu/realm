@@ -8,13 +8,14 @@ plain="\033[0m"
 # 脚本版本
 sh_ver="1.2"
 
-# 配置文件路径
-CONFIG_PATH="/root/.realm/config.toml"
-
 # 初始化环境目录
 init_env() {
     mkdir -p /root/realm
+    mkdir -p /root/.realm
 }
+
+# 配置文件路径
+CONFIG_PATH="/root/.realm/config.toml"
 
 # 处理命令行参数
 while getopts "l:r:" opt; do
@@ -36,18 +37,18 @@ done
 if [ -n "$listen_ip_port" ] && [ -n "$remote_ip_port" ]; then
     echo "配置中转机 IP 和端口为: $listen_ip_port"
     echo "配置落地机 IP 和端口为: $remote_ip_port"
-    
-    # 追加配置到 config.toml
-    cat <<EOF >> /root/realm/config.toml
+
+    cat <<EOF >> "$CONFIG_PATH"
 
 [[endpoints]]
 listen = "$listen_ip_port"
 remote = "$remote_ip_port"
 EOF
-
     echo "配置已追加，listen = $listen_ip_port，remote = $remote_ip_port"
     exit 0
 fi
+
+
 
 # 更新realm状态
 update_realm_status() {
@@ -71,28 +72,47 @@ check_realm_service_status() {
 
 # 更新脚本
 Update_Shell() {
-    echo -e "当前版本为 [ ${sh_ver} ]，开始检测最新版本..."
+    echo -e "当前脚本版本为 [ ${sh_ver} ]，开始检测最新版本..."
+
+    # 获取最新版本号
     sh_new_ver=$(wget --no-check-certificate -qO- "https://raw.githubusercontent.com/wcwq98/realm/main/realm.sh" | grep 'sh_ver="' | awk -F "=" '{print $NF}' | sed 's/\"//g' | head -1)
-    [[ -z ${sh_new_ver} ]] && echo -e "${red}检测最新版本失败！${plain}" && return
-    if [[ ${sh_new_ver} != ${sh_ver} ]]; then
-        echo -e "发现新版本 [ ${sh_new_ver} ]，是否更新？[Y/n]"
-        read -p "(默认: y):" yn
-        [[ -z "${yn}" ]] && yn="y"
-        if [[ ${yn} == [Yy] ]]; then
-            wget -N --no-check-certificate https://raw.githubusercontent.com/wcwq98/realm/main/realm.sh && chmod +x realm.sh
-            echo -e "脚本已更新为最新版本 [ ${sh_new_ver} ]！"
-            exit 0
-        else
-            echo -e "已取消更新。"
-        fi
-    else
+    if [[ -z ${sh_new_ver} ]]; then
+        echo -e "${red}检测最新版本失败！请检查网络或稍后再试。${plain}"
+        return 1
+    fi
+
+    if [[ ${sh_new_ver} == ${sh_ver} ]]; then
         echo -e "当前已是最新版本 [ ${sh_new_ver} ]！"
+        return 0
+    fi
+
+    # 提示用户是否更新
+    echo -e "发现新版本 [ ${sh_new_ver} ]，是否更新？[Y/n]"
+    read -p "(默认: y): " yn
+    yn=${yn:-y} # 默认值为 'y'
+    if [[ ${yn} =~ ^[Yy]$ ]]; then
+        # 下载最新脚本
+        wget -N --no-check-certificate https://raw.githubusercontent.com/wcwq98/realm/main/realm.sh -O realm.sh
+        if [[ $? -ne 0 ]]; then
+            echo -e "${red}下载脚本失败，请检查网络连接！${plain}"
+            return 1
+        fi
+
+        chmod +x realm.sh
+        echo -e "脚本已更新为最新版本 [ ${sh_new_ver} ]！"
+
+        # 自动重启更新后的脚本
+        echo "正在重新启动脚本..."
+        exec bash realm.sh
+    else
+        echo -e "已取消更新。"
     fi
 }
 
+
 # 初始化realm状态
 update_realm_status() {
-    if [ -f "/root/.realm/realm" ]; then
+    if [ -f "/root/realm/realm" ]; then
         realm_status="已安装"
         realm_status_color=$green
     else
@@ -174,12 +194,14 @@ deploy_realm() {
             ;;
     esac
 
-    wget -O "realm-${_version}.tar.gz" "$download_url"
-    tar -xvf "realm-${_version}.tar.gz"
-    chmod +x realm
-    
-    # 创建 config.toml 模板
-    cat <<EOF > /root/realm/config.toml
+    wget -O "/root/realm/realm-${_version}.tar.gz" "$download_url"
+    tar -xvf "/root/realm/realm-${_version}.tar.gz" -C /root/realm/
+    chmod +x /root/realm/realm
+
+# 创建 config.toml 模板
+    mkdir -p /root/.realm    
+    cat <<EOF > "$CONFIG_PATH"
+
 
 [network]
 no_tcp = false #是否关闭tcp转发
@@ -208,7 +230,7 @@ Restart=on-failure
 RestartSec=5s
 DynamicUser=true
 WorkingDirectory=/root/realm
-ExecStart=/root/realm/realm -c /root/realm/config.toml
+ExecStart=/root/realm/realm -c /root/.realm/config.toml
 
 [Install]
 WantedBy=multi-user.target" > /etc/systemd/system/realm.service
