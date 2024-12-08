@@ -6,14 +6,14 @@ green="\033[0;32m"
 plain="\033[0m"
 
 # 脚本版本
-sh_ver="1.1"
+sh_ver="1.0.0"
 
 # 配置文件路径
-CONFIG_PATH="/root/realm/config.toml"
+CONFIG_PATH="/root/.realm/config.toml"
 
 # 初始化环境目录
 init_env() {
-    mkdir -p /root/realm
+    mkdir -p /root/.realm
 }
 
 # 更新脚本
@@ -39,7 +39,7 @@ Update_Shell() {
 
 # 初始化realm状态
 update_realm_status() {
-    if [ -f "/root/realm/realm" ]; then
+    if [ -f "/root/.realm/realm" ]; then
         realm_status="已安装"
         realm_status_color=$green
     else
@@ -82,7 +82,7 @@ show_menu() {
 # 部署环境的函数
 deploy_realm() {
     init_env
-    cd /root/realm
+    cd /root/.realm
 
     _version=$(curl -s https://api.github.com/repos/zhboner/realm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 
@@ -117,11 +117,6 @@ deploy_realm() {
 no_tcp = false #是否关闭tcp转发
 use_udp = true #是否开启udp转发
 
-#参考模板
-# [[endpoints]]
-# listen = "0.0.0.0:本地端口"
-# remote = "落地鸡ip:目标端口"
-
 [[endpoints]]
 listen = "0.0.0.0:1234"
 remote = "0.0.0.0:5678"
@@ -138,8 +133,8 @@ Type=simple
 User=root
 Restart=on-failure
 RestartSec=5s
-WorkingDirectory=/root/realm
-ExecStart=/root/realm/realm -c $CONFIG_PATH
+WorkingDirectory=/root/.realm
+ExecStart=/root/.realm/realm -c $CONFIG_PATH
 
 [Install]
 WantedBy=multi-user.target" > /etc/systemd/system/realm.service
@@ -147,6 +142,40 @@ WantedBy=multi-user.target" > /etc/systemd/system/realm.service
     systemctl daemon-reload
     update_realm_status
     echo "部署完成。"
+}
+
+# 启动服务
+start_service() {
+    systemctl unmask realm.service
+    systemctl daemon-reload
+    systemctl restart realm.service
+    systemctl enable realm.service
+    echo "realm服务已启动并设置为开机自启。"
+    update_realm_status
+
+    # 检查服务状态
+    if ! systemctl is-active --quiet realm; then
+        echo "请检查是否存在config.toml或config.toml配置是否正确"
+    fi
+}
+
+# 停止服务
+stop_service() {
+    systemctl stop realm
+    echo "realm服务已停止。"
+    update_realm_status
+}
+
+# 重启服务
+restart_service() {
+    systemctl restart realm
+    echo "realm服务已重启。"
+    update_realm_status
+
+    # 检查服务状态
+    if ! systemctl is-active --quiet realm; then
+        echo "请检查是否存在config.toml或config.toml配置是否正确"
+    fi
 }
 
 # 初始化realm状态
