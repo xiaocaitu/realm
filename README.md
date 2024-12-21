@@ -16,19 +16,20 @@
 7. 重启服务
 8. 检测更新
 9. 一键卸载
+10. 更新脚本
 0. 退出脚本
 =================
-realm 状态：未安装
-realm 转发状态：未启用
+realm 状态：已安装
+realm 转发状态：启用
 ```
 ## 一键脚本：
 国内或v6 only可用（推荐）
 ```
-curl -L https://host.wxgwxha.eu.org/https://github.com/wcwq98/realm/releases/download/v1.2/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
+curl -L https://host.wxgwxha.eu.org/https://github.com/wcwq98/realm/releases/download/v1.3/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
 ```
 或
 ```
-curl -L https://github.com/wcwq98/realm/releases/download/v1.2/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
+curl -L https://github.com/wcwq98/realm/releases/download/v1.3/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
 ```
 或
 ```
