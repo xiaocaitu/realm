@@ -6,7 +6,7 @@ green="\033[0;32m"
 plain="\033[0m"
 
 # 脚本版本
-sh_ver="1.3"
+sh_ver="2.0"
 
 # 初始化环境目录
 init_env() {
@@ -126,7 +126,7 @@ Update_Shell() {
 # 检查依赖
 check_dependencies() {
     echo "正在检查当前环境依赖"
-    local dependencies=("wget" "tar" "systemctl" "sed" "grep")
+    local dependencies=("wget" "tar" "systemctl" "sed" "grep" "curl")
 
     for dep in "${dependencies[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
