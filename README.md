@@ -17,23 +17,26 @@
 8. 检测更新
 9. 一键卸载
 10. 更新脚本
+11. 面板管理
 0. 退出脚本
 =================
 realm 状态：已安装
 realm 转发状态：启用
+面板状态：已安装
+面板服务状态：启用
 ```
 ## 一键脚本：
 国内或v6 only可用（推荐）
 ```
-curl -L https://host.wxgwxha.eu.org/https://github.com/wcwq98/realm/releases/download/v1.3/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
+curl -L https://host.wxgwxha.eu.org/https://github.com/wcwq98/realm/releases/download/v1.3/realm.sh -o realm.sh && chmod +x realm.sh &&  ./realm.sh
 ```
 或
 ```
-curl -L https://github.com/wcwq98/realm/releases/download/v1.3/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
+curl -L https://github.com/wcwq98/realm/releases/download/v1.3/realm.sh -o realm.sh && chmod +x realm.sh &&  ./realm.sh
 ```
 或
 ```
-curl -L https://raw.githubusercontent.com/wcwq98/realm/refs/heads/main/realm.sh -o realm.sh && chmod +x realm.sh && sudo ./realm.sh
+curl -L https://raw.githubusercontent.com/wcwq98/realm/refs/heads/main/realm.sh -o realm.sh && chmod +x realm.sh &&  ./realm.sh
 ```
 ## 默认配置文件（脚本在首次部署环境时会自动添加）
 ```
@@ -50,6 +53,18 @@ use_udp = true #是否开启udp转发
 listen = "0.0.0.0:1234"
 remote = "0.0.0.0:5678"
 ```
+## 可视化面板配置文件
+```
+[auth]
+password = "123456" # 面板密码
 
+[server]
+port = 8081 # 面板端口
 
+[https]
+enabled = false #是否开启HTTPS(强烈建议开启HTTPS)
+cert_file = "./certificate/cert.pem"
+key_file = "./certificate/private.key"
+
+```
 ## 如需其他更多配置请参考官方文档： https://github.com/zhboner/realm
