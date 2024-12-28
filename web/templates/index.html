@@ -118,6 +118,7 @@
     <div class="button-group">
         <button id="startButton">启动服务</button>
         <button id="stopButton">停止服务</button>
+        <button id="logoutButton">登出</button>
         <div class="status-wrapper">
             <span class="status-label">状态:</span>
             <span id="serviceStatus" class="status-tag">检查中...</span>
@@ -291,21 +292,43 @@
             rules.forEach((rule, index) => {
                 const row = document.createElement('tr');
                 let localPort = '', remoteIP = '', remotePort = '';
-    
-                if (rule.Listen) {
-                    [, localPort] = rule.Listen.split(':');
+
+                // 处理本地端口
+                if (rule.listen) {  // 改为小写 listen
+                    [, localPort] = rule.listen.split(':');
                 }
-    
-                if (rule.Remote) {
-                    [remoteIP, remotePort] = rule.Remote.split(':');
+
+                // 处理远程地址和端口
+                if (rule.remote) {  // 改为小写 remote
+                    // 检查是否是IPv6地址
+                    if (rule.remote.includes('[')) {
+                        // IPv6格式: [2001:db8::1]:80
+                        const matches = rule.remote.match(/\[(.*)\]:(.*)$/);
+                        if (matches) {
+                            remoteIP = matches[1];
+                            remotePort = matches[2];
+                        }
+                    } else if (rule.remote.includes(':')) {
+                        // 检查冒号的数量来判断是IPv6还是IPv4
+                        const colonCount = (rule.remote.match(/:/g) || []).length;
+                        if (colonCount > 1) {
+                            // IPv6地址没有方括号的情况
+                            const lastColon = rule.remote.lastIndexOf(':');
+                            remoteIP = rule.remote.substring(0, lastColon);
+                            remotePort = rule.remote.substring(lastColon + 1);
+                        } else {
+                            // IPv4地址
+                            [remoteIP, remotePort] = rule.remote.split(':');
+                        }
+                    }
                 }
-    
+
                 row.innerHTML = `
                     <td>${index + 1}</td>
                     <td>${localPort || 'N/A'}</td>
                     <td>${remoteIP || 'N/A'}</td>
                     <td>${remotePort || 'N/A'}</td>
-                    <td><button onclick="deleteRule('${rule.Listen || ''}')">删除</button></td>
+                    <td><button onclick="deleteRule('${rule.listen || ''}')">删除</button></td>
                 `;
                 tbody.appendChild(row);
             });
@@ -322,6 +345,25 @@
         
         // 每10秒更新一次状态
         setInterval(updateServiceStatus, 10000);
+    };
+
+    // 登出功能
+    document.getElementById('logoutButton').onclick = async function() {
+        try {
+            const response = await fetch('/logout', {
+                method: 'POST'
+            });
+            
+            if (!response.ok) {
+                throw new Error('登出失败：' + response.statusText);
+            }
+
+            // 登出成功，重定向到登录页面
+            window.location.href = '/login';
+        } catch (error) {
+            console.error('登出失败:', error);
+            alert('登出失败：' + error.message);
+        }
     };
 </script>
 

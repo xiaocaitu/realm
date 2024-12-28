@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -15,8 +16,8 @@ import (
 )
 
 type ForwardingRule struct {
-	Listen string `toml:"listen"`
-	Remote string `toml:"remote"`
+	Listen string `toml:"listen" json:"listen"`
+	Remote string `toml:"remote" json:"remote"`
 }
 
 type Config struct {
@@ -42,10 +43,10 @@ type PanelConfig struct {
 }
 
 var (
-	rules       []ForwardingRule
 	mu          sync.Mutex
 	config      Config
 	panelConfig PanelConfig
+	httpsWarningShown = false
 )
 
 func LoadConfig() error {
@@ -58,7 +59,6 @@ func LoadConfig() error {
 		return err
 	}
 
-	rules = config.Endpoints
 	return nil
 }
 
@@ -75,26 +75,55 @@ func LoadPanelConfig() error {
 	return nil
 }
 
-func SaveRules() error {
+func SaveConfig() error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	config.Endpoints = rules
-	data, err := toml.Marshal(config)
-	if err != nil {
+	var buf bytes.Buffer
+	encoder := toml.NewEncoder(&buf)
+
+	// 编码 network 部分
+	if err := encoder.Encode(map[string]interface{}{"network": config.Network}); err != nil {
 		return err
 	}
 
-	return ioutil.WriteFile("/root/.realm/config.toml", data, 0644)
+	// 只有在有规则时才添加 endpoints 部分
+	if len(config.Endpoints) > 0 {
+		buf.WriteString("\n")
+		for _, endpoint := range config.Endpoints {
+			buf.WriteString("[[endpoints]]\n")
+			if err := encoder.Encode(endpoint); err != nil {
+				return err
+			}
+			buf.WriteString("\n")
+		}
+	}
+
+	// 写入文件
+	return ioutil.WriteFile("/root/.realm/config.toml", buf.Bytes(), 0644)
 }
 
-// 认证中间件
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := sessions.Default(c)
 		user := session.Get("user")
 		if user == nil {
 			c.Redirect(http.StatusFound, "/login")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+func HTTPSRedirect() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if panelConfig.HTTPS.Enabled && c.Request.TLS == nil {
+			target := "https://" + c.Request.Host + c.Request.URL.Path
+			if c.Request.URL.RawQuery != "" {
+				target += "?" + c.Request.URL.RawQuery
+			}
+			c.Redirect(http.StatusMovedPermanently, target)
 			c.Abort()
 			return
 		}
@@ -113,14 +142,12 @@ func main() {
 
 	r := gin.Default()
 
-	// 设置 session
 	store := cookie.NewStore([]byte("secret"))
 	r.Use(sessions.Sessions("realm_session", store))
+	r.Use(HTTPSRedirect())
 
-	// 静态文件
 	r.Static("/static", "./static")
 
-	// 登录页面
 	r.GET("/login", func(c *gin.Context) {
 		session := sessions.Default(c)
 		if session.Get("user") != nil {
@@ -130,7 +157,6 @@ func main() {
 		c.File("./templates/login.html")
 	})
 
-	// 登录处理
 	r.POST("/login", func(c *gin.Context) {
 		var loginData struct {
 			Password string `json:"password"`
@@ -157,101 +183,90 @@ func main() {
 		}
 	})
 
-	// 登出
-	r.POST("/logout", AuthRequired(), func(c *gin.Context) {
-		session := sessions.Default(c)
-		session.Clear()
-		session.Save()
-		c.JSON(http.StatusOK, gin.H{"message": "登出成功"})
-	})
-
-	// 需要认证的路由
 	authorized := r.Group("/")
 	authorized.Use(AuthRequired())
 	{
-		// 主页
 		authorized.GET("/", func(c *gin.Context) {
+			if !panelConfig.HTTPS.Enabled && !httpsWarningShown {
+				c.Header("X-HTTPS-Warning", "当前未启用HTTPS，强烈建议启用HTTPS")
+				httpsWarningShown = true
+			}
 			c.File("./templates/index.html")
 		})
 
-		// 获取转发规则
 		authorized.GET("/get_rules", func(c *gin.Context) {
 			mu.Lock()
-			defer mu.Unlock()
+			rules := config.Endpoints
+			mu.Unlock()
 			c.JSON(200, rules)
 		})
 
-		// 添加转发规则
 		authorized.POST("/add_rule", func(c *gin.Context) {
-			var input struct {
-				Listen string `json:"listen"`
-				Remote string `json:"remote"`
-			}
+			var input ForwardingRule
 
 			if err := c.ShouldBindJSON(&input); err != nil {
-				c.JSON(400, gin.H{"error": "Invalid input"})
+				c.JSON(400, gin.H{"error": "无效的输入"})
 				return
 			}
 
 			mu.Lock()
-			rules = append(rules, ForwardingRule{
-				Listen: input.Listen,
-				Remote: input.Remote,
-			})
+			config.Endpoints = append(config.Endpoints, input)
 			mu.Unlock()
 
-			if err := SaveRules(); err != nil {
-				c.JSON(500, gin.H{"error": "Failed to save rules"})
+			if err := SaveConfig(); err != nil {
+				c.JSON(500, gin.H{"error": "保存配置失败"})
 				return
 			}
 
 			c.JSON(201, input)
 		})
 
-		// 删除转发规则
 		authorized.DELETE("/delete_rule", func(c *gin.Context) {
 			listen := c.Query("listen")
 
 			mu.Lock()
-			for i, rule := range rules {
+			found := false
+			for i, rule := range config.Endpoints {
 				if rule.Listen == listen {
-					rules = append(rules[:i], rules[i+1:]...)
+					config.Endpoints = append(config.Endpoints[:i], config.Endpoints[i+1:]...)
+					found = true
 					break
 				}
 			}
 			mu.Unlock()
 
-			if err := SaveRules(); err != nil {
-				c.JSON(500, gin.H{"error": "Failed to save rules"})
+			if err := SaveConfig(); err != nil {
+				c.JSON(500, gin.H{"error": "保存转发规则失败"})
 				return
 			}
 
-			c.Status(200)
+			if found {
+				c.JSON(200, gin.H{"message": "保存转发规则成功"})
+			} else {
+				c.JSON(404, gin.H{"error": "未找到转发规则"})
+			}
 		})
 
-		// 启动服务
 		authorized.POST("/start_service", func(c *gin.Context) {
 			cmd := exec.Command("systemctl", "start", "realm")
 			if err := cmd.Run(); err != nil {
-				c.JSON(500, gin.H{"error": "Failed to start service"})
+				c.JSON(500, gin.H{"error": "服务启动失败"})
 				return
 			}
 
-			c.JSON(200, gin.H{"message": "Service started successfully"})
+			c.JSON(200, gin.H{"message": "服务启动成功"})
 		})
 
-		// 停止服务
 		authorized.POST("/stop_service", func(c *gin.Context) {
 			cmd := exec.Command("systemctl", "stop", "realm")
 			if err := cmd.Run(); err != nil {
-				c.JSON(500, gin.H{"error": "Failed to stop service"})
+				c.JSON(500, gin.H{"error": "服务停止失败"})
 				return
 			}
 
-			c.JSON(200, gin.H{"message": "Service stopped successfully"})
+			c.JSON(200, gin.H{"message": "服务停止成功"})
 		})
 
-		// 检查服务状态
 		authorized.GET("/check_status", func(c *gin.Context) {
 			cmd := exec.Command("systemctl", "is-active", "--quiet", "realm")
 			err := cmd.Run()
@@ -273,6 +288,13 @@ func main() {
 
 			c.JSON(200, gin.H{"status": status})
 		})
+
+		authorized.POST("/logout", func(c *gin.Context) {
+			session := sessions.Default(c)
+			session.Clear()
+			session.Save()
+			c.JSON(http.StatusOK, gin.H{"message": "登出成功"})
+		})
 	}
 
 	port := panelConfig.Server.Port
@@ -287,10 +309,24 @@ func main() {
 			r.Run(fmt.Sprintf(":%d", port))
 		} else {
 			log.Printf("服务器正在使用 HTTPS 运行，端口：%d\n", port)
-			r.RunTLS(fmt.Sprintf(":%d", port), panelConfig.HTTPS.CertFile, panelConfig.HTTPS.KeyFile)
+			go func() {
+				log.Printf("HTTP 服务器正在运行，端口：8082，用于重定向到 HTTPS\n")
+				if err := http.ListenAndServe(":8082", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					target := "https://" + r.Host + r.URL.Path
+					if r.URL.RawQuery != "" {
+						target += "?" + r.URL.RawQuery
+					}
+					http.Redirect(w, r, target, http.StatusMovedPermanently)
+				})); err != nil {
+					log.Fatalf("HTTP 服务器错误: %v", err)
+				}
+			}()
+			if err := r.RunTLS(fmt.Sprintf(":%d", port), panelConfig.HTTPS.CertFile, panelConfig.HTTPS.KeyFile); err != nil {
+				log.Fatalf("HTTPS 服务器错误: %v", err)
+			}
 		}
 	} else {
-		log.Println("警告：未启用 HTTPS，将使用 HTTP 继续。")
+		log.Println("警告：未启用 HTTPS，强烈建议启用 HTTPS。")
 		log.Printf("服务器正在使用 HTTP 运行，端口：%d\n", port)
 		r.Run(fmt.Sprintf(":%d", port))
 	}

@@ -1,10 +1,11 @@
 [auth]
-password = "你的密码"
+password = "123456" # 面板密码
 
 [server]
-port = 8080
+port = 8081 # 面板端口
 
 [https]
-enabled = true
+enabled = false #是否开启HTTPS
 cert_file = "./certificate/cert.pem"
 key_file = "./certificate/private.key"
+
