@@ -48,8 +48,6 @@ EOF
     exit 0
 fi
 
-
-
 # 更新realm状态
 update_realm_status() {
     if [ -f "/root/realm/realm" ]; then
@@ -64,75 +62,96 @@ update_realm_status() {
 # 检查realm服务状态
 check_realm_service_status() {
     if systemctl is-active --quiet realm; then
-        echo -e "${green}启用${plain}"
+        realm_service_status="启用"
+        realm_service_status_color=$green
     else
-        echo -e "${red}未启用${plain}"
+        realm_service_status="未启用"
+        realm_service_status_color=$red
+    fi
+}
+
+# 更新面板状态
+update_panel_status() {
+    if [ -f "/root/realm/web/realm_web" ]; then
+        panel_status="已安装"
+        panel_status_color=$green
+    else
+        panel_status="未安装"
+        panel_status_color=$red
+    fi
+}
+
+# 检查面板服务状态
+check_panel_service_status() {
+    if systemctl is-active --quiet realm-panel; then
+        panel_service_status="启用"
+        panel_service_status_color=$green
+    else
+        panel_service_status="未启用"
+        panel_service_status_color=$red
     fi
 }
 
 # 更新脚本
 Update_Shell() {
     echo -e "当前脚本版本为 [ ${sh_ver} ]，开始检测最新版本..."
-
-    # 获取最新版本号
     sh_new_ver=$(wget --no-check-certificate -qO- "https://raw.githubusercontent.com/wcwq98/realm/main/realm.sh" | grep 'sh_ver="' | awk -F "=" '{print $NF}' | sed 's/\"//g' | head -1)
     if [[ -z ${sh_new_ver} ]]; then
         echo -e "${red}检测最新版本失败！请检查网络或稍后再试。${plain}"
         return 1
     fi
-
+    
     if [[ ${sh_new_ver} == ${sh_ver} ]]; then
         echo -e "当前已是最新版本 [ ${sh_new_ver} ]！"
         return 0
     fi
-
-    # 提示用户是否更新
+    
     echo -e "发现新版本 [ ${sh_new_ver} ]，是否更新？[Y/n]"
     read -p "(默认: y): " yn
-    yn=${yn:-y} # 默认值为 'y'
+    yn=${yn:-y}
     if [[ ${yn} =~ ^[Yy]$ ]]; then
-        # 下载最新脚本
         wget -N --no-check-certificate https://raw.githubusercontent.com/wcwq98/realm/main/realm.sh -O realm.sh
         if [[ $? -ne 0 ]]; then
             echo -e "${red}下载脚本失败，请检查网络连接！${plain}"
             return 1
         fi
-
         chmod +x realm.sh
         echo -e "脚本已更新为最新版本 [ ${sh_new_ver} ]！"
-
-        # 自动重启更新后的脚本
-        echo "正在重新启动脚本..."
         exec bash realm.sh
     else
         echo -e "已取消更新。"
     fi
 }
 
+# 检查依赖
+check_dependencies() {
+    echo "正在检查当前环境依赖"
+    local dependencies=("wget" "tar" "systemctl" "sed" "grep")
 
-# 初始化realm状态
-update_realm_status() {
-    if [ -f "/root/realm/realm" ]; then
-        realm_status="已安装"
-        realm_status_color=$green
-    else
-        realm_status="未安装"
-        realm_status_color=$red
-    fi
-}
+    for dep in "${dependencies[@]}"; do
+        if ! command -v "$dep" &> /dev/null; then
+            echo "正在安装 $dep..."
+            if [ -x "$(command -v apt-get)" ]; then
+                apt-get update && apt-get install -y "$dep"
+            elif [ -x "$(command -v yum)" ]; then
+                yum install -y "$dep"
+            else
+                echo "无法安装 $dep。请手动安装后重试。"
+                exit 1
+            fi
+        fi
+    done
 
-# 检查realm服务状态
-check_realm_service_status() {
-    if systemctl is-active --quiet realm; then
-        echo -e "${green}启用${plain}"
-    else
-        echo -e "${red}未启用${plain}"
-    fi
+    echo "所有依赖已满足。"
 }
 
 # 显示菜单的函数
 show_menu() {
     clear
+    update_realm_status
+    check_realm_service_status
+    update_panel_status
+    check_panel_service_status
     echo "欢迎使用realm一键转发脚本"
     echo "================="
     echo "1. 部署环境"
@@ -145,11 +164,13 @@ show_menu() {
     echo "8. 检测更新"
     echo "9. 一键卸载"
     echo "10. 更新脚本"
+    echo "11. 面板管理"
     echo "0. 退出脚本"
     echo "================="
     echo -e "realm 状态：${realm_status_color}${realm_status}${plain}"
-    echo -n "realm 转发状态："
-    check_realm_service_status
+    echo -e "realm 转发状态：${realm_service_status_color}${realm_service_status}${plain}"
+    echo -e "面板状态：${panel_status_color}${panel_status}${plain}"
+    echo -e "面板服务状态：${panel_service_status_color}${panel_service_status}${plain}"
 }
 
 # 部署环境的函数
@@ -198,11 +219,9 @@ deploy_realm() {
     tar -xvf "/root/realm/realm-${_version}.tar.gz" -C /root/realm/
     chmod +x /root/realm/realm
 
-# 创建 config.toml 模板
+    # 创建 config.toml 模板
     mkdir -p /root/.realm    
     cat <<EOF > "$CONFIG_PATH"
-
-
 [network]
 no_tcp = false #是否关闭tcp转发
 use_udp = true #是否开启udp转发
@@ -215,7 +234,6 @@ use_udp = true #是否开启udp转发
 [[endpoints]]
 listen = "0.0.0.0:1234"
 remote = "0.0.0.0:5678"
-
 EOF
 
     echo "[Unit]
@@ -255,6 +273,7 @@ uninstall_realm() {
 
     if [[ $delete_config == "Y" || $delete_config == "y" ]]; then
         rm -rf /root/realm
+        rm -rf /root/.realm
         echo "配置文件已删除。"
     else
         echo "配置文件保留。"
@@ -266,15 +285,17 @@ uninstall_realm() {
 # 删除转发规则的函数
 delete_forward() {
     echo "当前转发规则："
-    local IFS=$'\n'
-    local lines=($(grep -n 'remote =' /root/realm/config.toml))
+    local lines=($(grep -n 'remote =' /root/.realm/config.toml | grep -v '#' | awk -F: '{print $1}'))
     if [ ${#lines[@]} -eq 0 ]; then
         echo "没有发现任何转发规则。"
         return
     fi
     local index=1
-    for line in "${lines[@]}"; do
-        echo "${index}. $(echo $line | cut -d '"' -f 2)"
+    for line_num in "${lines[@]}"; do
+        listen_line=$((line_num - 1))
+        listen_port=$(sed -n "${listen_line}p" /root/.realm/config.toml | cut -d '"' -f 2)
+        remote_port=$(sed -n "${line_num}p" /root/.realm/config.toml | cut -d '"' -f 2)
+        echo "${index}. 本地监听: ${listen_port} --> 远程目标: ${remote_port}"
         let index+=1
     done
 
@@ -295,13 +316,20 @@ delete_forward() {
         return
     fi
 
-    local chosen_line=${lines[$((choice-1))]}
-    local line_number=$(echo $chosen_line | cut -d ':' -f 1)
+    local line_number=${lines[$((choice-1))]}
 
+    # 找到 [[endpoints]] 的起始行
     local start_line=$line_number
-    local end_line=$(($line_number + 2))
+    while [ $start_line -ge 1 ]; do
+        local line_content=$(sed -n "${start_line}p" /root/.realm/config.toml)
+        if [[ $line_content =~ $$\[endpoints$$\] ]]; then
+            break
+        fi
+        ((start_line--))
+    done
 
-    sed -i "${start_line},${end_line}d" /root/realm/config.toml
+    # 删除从 start_line 开始的 3 行
+    sed -i "${start_line},$(($start_line+3))d" /root/.realm/config.toml
 
     echo "转发规则已删除。"
 }
@@ -312,9 +340,10 @@ add_forward() {
         read -e -p "请输入落地鸡的IP: " ip
         read -e -p "请输入本地中转鸡的端口（port1）: " port1
         read -e -p "请输入落地鸡端口（port2）: " port2
-        echo "[[endpoints]]
+        echo "
+[[endpoints]]
 listen = \"0.0.0.0:$port1\"
-remote = \"$ip:$port2\"" >> /root/realm/config.toml
+remote = \"$ip:$port2\"" >> /root/.realm/config.toml
 
         read -e -p "是否继续添加转发规则(Y/N)? " answer
         if [[ $answer != "Y" && $answer != "y" ]]; then
@@ -331,9 +360,10 @@ add_port_range_forward() {
     read -e -p "请输入落地鸡端口: " remote_port
 
     for ((port=$start_port; port<=$end_port; port++)); do
-        echo "[[endpoints]]
+        echo "
+[[endpoints]]
 listen = \"0.0.0.0:$port\"
-remote = \"$ip:$remote_port\"" >> /root/realm/config.toml
+remote = \"$ip:$remote_port\"" >> /root/.realm/config.toml
     done
 
     echo "端口段转发规则已添加。"
@@ -346,30 +376,23 @@ start_service() {
     systemctl restart realm.service
     systemctl enable realm.service
     echo "realm服务已启动并设置为开机自启。"
-    update_realm_status
-
-    # 检查服务状态
-    if ! systemctl is-active --quiet realm; then
-        echo "请检查是否存在config.toml或config.toml配置是否正确"
-    fi
+    check_realm_service_status
 }
+
 # 停止服务
 stop_service() {
-    systemctl stop realm
-    echo "realm服务已停止。"
-    update_realm_status
+    systemctl stop realm.service
+    systemctl disable realm.service
+    echo "realm服务已停止并已禁用开机自启。"
+    check_realm_service_status
 }
 
 # 重启服务
 restart_service() {
-    systemctl restart realm
+    systemctl daemon-reload
+    systemctl restart realm.service
     echo "realm服务已重启。"
-    update_realm_status
-
-    # 检查服务状态
-    if ! systemctl is-active --quiet realm; then
-        echo "请检查是否存在config.toml或config.toml配置是否正确"
-    fi
+    check_realm_service_status
 }
 
 # 更新realm
@@ -407,26 +430,174 @@ update_realm() {
     update_realm_status
 }
 
-# 初始化realm状态
-update_realm_status
+# 面板管理函数
+panel_management() {
+    clear
+    echo "==========================="
+    echo "Realm 面板管理"
+    echo "==========================="
+    echo "1. 启动面板"
+    echo "2. 暂停面板" 
+    echo "3. 安装面板"
+    echo "4. 卸载面板"
+    echo "5. 修改面板配置"
+    echo "0. 返回主菜单"
+    echo "==========================="
+    read -p "请选择操作 [0-5]: " panel_choice
 
-# 主循环
-while true; do
-    show_menu
-    read -p "请选择一个选项: " choice
-    case $choice in
-        1) deploy_realm ;;
-        2) add_forward ;;
-        3) add_port_range_forward ;;
-        4) delete_forward ;;
-        5) start_service ;;
-        6) stop_service ;;
-        7) restart_service ;;
-        8) update_realm ;;
-        9) uninstall_realm ;;
-        10) Update_Shell ;;
-        0) echo "退出脚本。"; exit 0 ;;
-        *) echo "无效选项: $choice" ;;
+    case $panel_choice in
+        1) start_panel ;;
+        2) stop_panel ;;
+        3) install_panel ;;
+        4) uninstall_panel ;;
+        5) modify_panel_config ;;
+        0) return ;;
+        *) echo "无效的选择" ;;
     esac
-    read -p "按任意键继续..." key
-done
+}
+
+install_panel() {
+    echo "开始安装 Realm 面板..."
+    
+    # 检测系统架构
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64)
+            panel_file="realm-panel-linux-amd64.tar.gz"
+            ;;
+        aarch64|arm64)
+            panel_file="realm-panel-linux-arm64.tar.gz"
+            ;;
+        *)
+            echo "不支持的系统架构: $arch"
+            return 1
+            ;;
+    esac
+
+    cd /root/realm 
+
+    # 从 GitHub 下载面板文件
+    echo "正在从 GitHub 下载面板文件..."
+    echo "检测到系统架构: $arch，将下载: $panel_file"
+    
+    # 下载面板文件
+    download_url="https://github.com/wcwq98/realm/releases/download/v2.0/${panel_file}"
+    if ! wget -O "${panel_file}" "$download_url"; then
+    echo "下载失败，请检查网络连接或稍后再试。"
+    return 1
+    fi
+
+    # 解压并设置权限
+    tar -xvf "${panel_file}" -C /root/realm/
+
+	# 重命名文件夹
+	if [ -d "realm-panel-linux-amd64" ]; then
+	    mv realm-panel-linux-amd64 web
+	elif [ -d "realm-panel-linux-arm64" ]; then
+	    mv realm-panel-linux-arm64 web
+	else
+	    echo "未找到解压后的文件夹。"
+	    return 1
+	fi
+	
+	cd web
+	# 设置权限
+	chmod +rwx realm-web-amd64
+	
+	# 重命名文件
+	if [ -f "realm-web-amd64" ]; then
+	    mv realm-web-amd64 realm_web
+	elif [ -f "realm-web-arm64" ]; then
+	    mv realm-web-arm64 realm_web
+	else
+	    echo "未找到解压后的文件。"
+	    return 1
+	fi
+
+
+    # 创建服务文件
+    echo "[Unit]
+Description=Realm Web Panel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/realm/web
+ExecStart=/root/realm/web/realm_web
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target" > /etc/systemd/system/realm-panel.service
+
+    # 重新加载 systemd 并启动服务
+    systemctl daemon-reload
+    systemctl enable realm-panel
+    systemctl start realm-panel
+
+    update_panel_status
+    echo "Realm 面板安装完成。"
+}
+
+# 启动面板
+start_panel() {
+    systemctl start realm-panel
+    echo "面板服务已启动。"
+    check_panel_service_status
+}
+
+# 停止面板
+stop_panel() {
+    systemctl stop realm-panel
+    echo "面板服务已停止。"
+    check_panel_service_status
+}
+
+# 卸载面板
+uninstall_panel() {
+    systemctl stop realm-panel
+    systemctl disable realm-panel
+    rm -f /etc/systemd/system/realm-panel.service
+    systemctl daemon-reload
+
+    rm -f /root/realm/realm_web
+    echo "面板已被卸载。"
+
+    update_panel_status
+}
+
+# 修改面板配置
+modify_panel_config() {
+    echo "修改面板配置..."
+    # 在此添加修改配置的具体逻辑
+    echo "配置已修改。"
+}
+
+# 主程序
+main() {
+    check_dependencies
+    init_env
+
+    while true; do
+        show_menu
+        read -p "请输入选项 [0-11]: " choice
+
+        case $choice in
+            1) deploy_realm ;;
+            2) add_forward ;;
+            3) add_port_range_forward ;;
+            4) delete_forward ;;
+            5) start_service ;;
+            6) stop_service ;;
+            7) restart_service ;;
+            8) update_realm ;;
+            9) uninstall_realm ;;
+            10) Update_Shell ;;
+            11) panel_management ;;
+            0) exit 0 ;;
+            *) echo "无效的选项，请重新输入。" ;;
+        esac
+    done
+}
+
+main
