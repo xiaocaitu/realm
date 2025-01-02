@@ -108,14 +108,6 @@
             align-items: center;
             margin-bottom: 20px;
         }
-
-        .form-group textarea {
-            width: calc(100% - 22px);
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            height: 150px;
-        }
     </style>
 </head>
 <body>
@@ -168,10 +160,10 @@
 
     <h2>批量添加转发规则</h2>
     <div class="form-group">
-        <label for="batchInput">批量输入规则（每行一个规则，中转端口:落地鸡 IP:目标端口）：</label>
-        <textarea id="batchInput" placeholder="例如：8080:192.168.1.10:80"></textarea>
+        <label for="batchInput">批量添加规则 (格式：localPort:remoteIP:remotePort，每条规则一行):</label>
+        <textarea id="batchInput" rows="5" style="width: 100%;"></textarea>
     </div>
-    <button id="addBatchRulesButton">批量添加规则</button>
+    <button id="addBatchButton">批量添加规则</button>
 
 </div>
 
@@ -243,7 +235,7 @@
         }
     };
 
-    // 添加单个转发规则
+    // 添加转发规则
     document.getElementById('addRuleButton').onclick = async function() {
         const localPort = document.getElementById('localPort').value;
         const remoteIP = document.getElementById('remoteIP').value;
@@ -274,41 +266,55 @@
     };
 
     // 批量添加转发规则
-    document.getElementById('addBatchRulesButton').onclick = async function() {
+    document.getElementById('addBatchButton').onclick = async function() {
         const batchInput = document.getElementById('batchInput').value.trim();
-        const rules = batchInput.split('\n').map(line => line.trim()).filter(Boolean);
-        
-        if (rules.length === 0) {
-            alert('请提供有效的规则');
-            return;
-        }
+        const rules = batchInput.split('\n').map(line => {
+            const [localPort, remoteIP, remotePort] = line.split(':');
+            return { listen: `0.0.0.0:${localPort}`, remote: `${remoteIP}:${remotePort}` };
+        });
 
         try {
+            // 遍历每个规则并逐个添加
             for (const rule of rules) {
-                const [localPort, remoteIP, remotePort] = rule.split(':');
                 const response = await fetch(`/add_rule`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        listen: `0.0.0.0:${localPort}`,
-                        remote: `${remoteIP}:${remotePort}`
-                    }),
+                    body: JSON.stringify(rule),
                 });
 
                 if (!response.ok) {
-                    throw new Error('批量添加规则失败：' + response.statusText);
+                    throw new Error(`批量添加规则失败：${response.statusText}`);
                 }
             }
 
-            alert('批量规则添加成功！');
+            alert('批量转发规则添加成功！');
             await fetchForwardingRules(); // 刷新规则列表
         } catch (error) {
             console.error('批量添加规则失败:', error);
             alert('批量添加规则失败：' + error.message);
         }
     };
+
+    // 删除转发规则
+    async function deleteRule(listenAddress) {
+        try {
+            const response = await fetch(`/delete_rule?listen=${encodeURIComponent(listenAddress)}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                throw new Error('删除规则失败：' + response.statusText);
+            }
+
+            alert('转发规则删除成功！');
+            await fetchForwardingRules(); // 刷新规则列表
+        } catch (error) {
+            console.error('删除规则失败:', error);
+            alert('删除规则失败：' + error.message);
+        }
+    }
 
     // 获取当前转发规则
     async function fetchForwardingRules() {
@@ -326,30 +332,25 @@
                 let localPort = '', remoteIP = '', remotePort = '';
 
                 // 处理本地端口
-                if (rule.listen) {  // 改为小写 listen
+                if (rule.listen) {
                     [, localPort] = rule.listen.split(':');
                 }
 
                 // 处理远程地址和端口
-                if (rule.remote) {  // 改为小写 remote
-                    // 检查是否是IPv6地址
+                if (rule.remote) {
                     if (rule.remote.includes('[')) {
-                        // IPv6格式: [2001:db8::1]:80
                         const matches = rule.remote.match(/\[(.*)\]:(.*)$/);
                         if (matches) {
                             remoteIP = matches[1];
                             remotePort = matches[2];
                         }
                     } else if (rule.remote.includes(':')) {
-                        // 检查冒号的数量来判断是IPv6还是IPv4
                         const colonCount = (rule.remote.match(/:/g) || []).length;
                         if (colonCount > 1) {
-                            // IPv6地址没有方括号的情况
                             const lastColon = rule.remote.lastIndexOf(':');
                             remoteIP = rule.remote.substring(0, lastColon);
                             remotePort = rule.remote.substring(lastColon + 1);
                         } else {
-                            // IPv4地址
                             [remoteIP, remotePort] = rule.remote.split(':');
                         }
                     }
@@ -390,7 +391,6 @@
                 throw new Error('登出失败：' + response.statusText);
             }
 
-            // 登出成功，重定向到登录页面
             window.location.href = '/login';
         } catch (error) {
             console.error('登出失败:', error);
