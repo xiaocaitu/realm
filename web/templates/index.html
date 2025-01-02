@@ -108,6 +108,14 @@
             align-items: center;
             margin-bottom: 20px;
         }
+
+        .form-group textarea {
+            width: calc(100% - 22px);
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            height: 150px;
+        }
     </style>
 </head>
 <body>
@@ -157,6 +165,13 @@
         <input type="number" id="remotePort" required>
     </div>
     <button id="addRuleButton">添加规则</button>
+
+    <h2>批量添加转发规则</h2>
+    <div class="form-group">
+        <label for="batchInput">批量输入规则（每行一个规则，中转端口:落地鸡 IP:目标端口）：</label>
+        <textarea id="batchInput" placeholder="例如：8080:192.168.1.10:80"></textarea>
+    </div>
+    <button id="addBatchRulesButton">批量添加规则</button>
 
 </div>
 
@@ -228,8 +243,7 @@
         }
     };
 
-
-    // 添加转发规则
+    // 添加单个转发规则
     document.getElementById('addRuleButton').onclick = async function() {
         const localPort = document.getElementById('localPort').value;
         const remoteIP = document.getElementById('remoteIP').value;
@@ -259,24 +273,42 @@
         }
     };
 
-    // 删除转发规则
-    async function deleteRule(listenAddress) {
-        try {
-            const response = await fetch(`/delete_rule?listen=${encodeURIComponent(listenAddress)}`, {
-                method: 'DELETE'
-            });
+    // 批量添加转发规则
+    document.getElementById('addBatchRulesButton').onclick = async function() {
+        const batchInput = document.getElementById('batchInput').value.trim();
+        const rules = batchInput.split('\n').map(line => line.trim()).filter(Boolean);
+        
+        if (rules.length === 0) {
+            alert('请提供有效的规则');
+            return;
+        }
 
-            if (!response.ok) {
-                throw new Error('删除规则失败：' + response.statusText);
+        try {
+            for (const rule of rules) {
+                const [localPort, remoteIP, remotePort] = rule.split(':');
+                const response = await fetch(`/add_rule`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        listen: `0.0.0.0:${localPort}`,
+                        remote: `${remoteIP}:${remotePort}`
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('批量添加规则失败：' + response.statusText);
+                }
             }
 
-            alert('转发规则删除成功！');
+            alert('批量规则添加成功！');
             await fetchForwardingRules(); // 刷新规则列表
         } catch (error) {
-            console.error('删除规则失败:', error);
-            alert('删除规则失败：' + error.message);
+            console.error('批量添加规则失败:', error);
+            alert('批量添加规则失败：' + error.message);
         }
-    }
+    };
 
     // 获取当前转发规则
     async function fetchForwardingRules() {
@@ -369,4 +401,3 @@
 
 </body>
 </html>
-
