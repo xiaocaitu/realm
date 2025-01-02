@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realm 转发管理面板</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            background-color: #28a745;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .form-group input {
+            width: calc(100% - 22px);
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        #output {
+            margin-top: 20px;
+            background-color: #fff;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            min-height: 50px;
+            white-space: pre-wrap; /* 保持空格和换行 */
+        }
+        .status-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            font-size: 14px;
+            line-height: 20px;
+            border-radius: 4px;
+            margin-left: 10px;
+            font-weight: 500;
+        }
+
+        .status-tag.running {
+            background-color: #52c41a;
+            color: white;
+        }
+
+        .status-tag.stopped {
+            background-color: #ff4d4f;
+            color: white;
+        }
+
+        .status-wrapper {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 15px;
+        }
+
+        .status-label {
+            color: #666;
+            margin-right: 8px;
+        }
+
+        .button-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Realm 转发管理面板</h1>
+
+    <div class="button-group">
+        <button id="startButton">启动服务</button>
+        <button id="stopButton">停止服务</button>
+        <button id="logoutButton">登出</button>
+        <div class="status-wrapper">
+            <span class="status-label">状态:</span>
+            <span id="serviceStatus" class="status-tag">检查中...</span>
+        </div>
+    </div>
+
+    <div id="output"></div>
+
+    <h2>当前转发规则</h2>
+    <table id="forwardingTable">
+        <thead>
+            <tr>
+                <th>序号</th>
+                <th>中转端口</th>
+                <th>落地鸡 IP</th>
+                <th>目标端口</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- 动态填充转发规则 -->
+        </tbody>
+    </table>
+
+    <h2>添加转发规则</h2>
+    <div class="form-group">
+        <label for="localPort">中转端口:</label>
+        <input type="number" id="localPort" required>
+    </div>
+    <div class="form-group">
+        <label for="remoteIP">落地鸡 IP:</label>
+        <input type="text" id="remoteIP" required>
+    </div>
+    <div class="form-group">
+        <label for="remotePort">目标端口:</label>
+        <input type="number" id="remotePort" required>
+    </div>
+    <button id="addRuleButton">添加规则</button>
+
+    <h2>批量添加转发规则</h2>
+    <div class="form-group">
+        <label for="batchInput">规则输入 (格式：localPort:remoteIP:remotePort，每行一个规则):</label>
+        <textarea id="batchInput" rows="5" placeholder="例如：8080:192.168.1.100:8081"></textarea>
+    </div>
+    <button id="addBatchButton">批量添加规则</button>
+
+</div>
+
+<script>
+    // 检查是否有重复的 localPort
+    async function isPortAlreadyUsed(localPort) {
+        try {
+            const response = await fetch(`/get_rules`);
+            if (!response.ok) {
+                throw new Error('获取规则失败：' + response.statusText);
+            }
+            const rules = await response.json();
+
+            // 检查是否有相同的 localPort
+            return rules.some(rule => {
+                const [existingPort] = rule.listen.split(':');
+                return existingPort === '0.0.0.0' && rule.listen.split(':')[1] === localPort;
+            });
+        } catch (error) {
+            console.error('检查端口是否已被占用失败:', error);
+            alert('检查端口是否已被占用失败：' + error.message);
+            return false;
+        }
+    }
+
+    // 添加单个规则
+    document.getElementById('addRuleButton').onclick = async function() {
+        const localPort = document.getElementById('localPort').value;
+        const remoteIP = document.getElementById('remoteIP').value;
+        const remotePort = document.getElementById('remotePort').value;
+
+        // 检查 localPort 是否已经被占用
+        const isUsed = await isPortAlreadyUsed(localPort);
+        if (isUsed) {
+            alert(`端口 ${localPort} 已被其他规则占用，无法添加该规则！`);
+            return;
+        }
+
+        try {
+            const response = await fetch(`/add_rule`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    listen: `0.0.0.0:${localPort}`,
+                    remote: `${remoteIP}:${remotePort}`
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error('添加规则失败：' + response.statusText);
+            }
+
+            alert('转发规则添加成功！');
+            await fetchForwardingRules(); // 刷新规则列表
+        } catch (error) {
+            console.error('添加规则失败:', error);
+            alert('添加规则失败：' + error.message);
+        }
+    };
+
+    // 批量添加规则
+    document.getElementById('addBatchButton').onclick = async function() {
+        const batchInput = document.getElementById('batchInput').value.trim();
+        const rules = batchInput.split('\n').map(line => {
+            const [localPort, remoteIP, remotePort] = line.split(':');
+            return { listen: `0.0.0.0:${localPort}`, remote: `${remoteIP}:${remotePort}` };
+        });
+
+        // 逐个检查端口是否已占用
+        for (const rule of rules) {
+            const localPort = rule.listen.split(':')[1];
+            const isUsed = await isPortAlreadyUsed(localPort);
+            if (isUsed) {
+                alert(`端口 ${localPort} 已被占用，无法添加该规则！`);
+                return;
+            }
+        }
+
+        try {
+            // 批量添加规则
+            for (const rule of rules) {
+                const response = await fetch(`/add_rule`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(rule),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`批量添加规则失败：${response.statusText}`);
+                }
+            }
+
+            alert('批量转发规则添加成功！');
+            await fetchForwardingRules(); // 刷新规则列表
+        } catch (error) {
+            console.error('批量添加规则失败:', error);
+            alert('批量添加规则失败：' + error.message);
+        }
+    };
+
+    // 删除转发规则
+    async function deleteRule(listenAddress) {
+        try {
+            const response = await fetch(`/delete_rule?listen=${encodeURIComponent(listenAddress)}`, {
+                method: 'DELETE',
+            });
+
+            if (response.ok) {
+                alert('规则已删除');
+                await fetchForwardingRules(); // 刷新规则列表
+            } else {
+                alert('删除规则失败');
+            }
+        } catch (error) {
+            console.error('删除规则失败:', error);
+            alert('删除规则失败：' + error.message);
+        }
+    }
+
+    // 获取转发规则列表
+    async function fetchForwardingRules() {
+        try {
+            const response = await fetch(`/get_rules`);
+            if (!response.ok) {
+                throw new Error('获取规则失败：' + response.statusText);
+            }
+            const rules = await response.json();
+            const tableBody = document.querySelector('#forwardingTable tbody');
+            tableBody.innerHTML = '';
+
+            rules.forEach((rule, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${rule.listen.split(':')[1]}</td>
+                    <td>${rule.remote.split(':')[0]}</td>
+                    <td>${rule.remote.split(':')[1]}</td>
+                    <td><button onclick="deleteRule('${rule.listen}')">删除</button></td>
+                `;
+                tableBody.appendChild(row);
+            });
+        } catch (error) {
+            console.error('获取转发规则失败:', error);
+            alert('获取转发规则失败：' + error.message);
+        }
+    }
+
+    // 初始化
+    fetchForwardingRules();
+
+</script>
+
+</body>
+</html>
